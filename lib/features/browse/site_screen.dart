@@ -1,4 +1,5 @@
 import 'dart:async';
+import 'dart:ui';
 import 'package:flutter/material.dart';
 import 'package:manga_sonic/features/library/manga_screen.dart';
 import 'package:manga_sonic/shared/widgets/manga_grid_card.dart';
@@ -169,14 +170,27 @@ class _SiteScreenState extends State<SiteScreen> {
   @override
   Widget build(BuildContext context) {
     return Scaffold(
-      body: CustomScrollView(
-        controller: _scrollController,
-        slivers: [
+      backgroundColor: Colors.transparent,
+      body: Stack(
+        children: [
+          // Blurred transparent background
+          Positioned.fill(
+            child: BackdropFilter(
+              filter: ImageFilter.blur(sigmaX: 20, sigmaY: 20),
+              child: Container(
+                color: Colors.black.withValues(alpha: 0.15),
+              ),
+            ),
+          ),
+          // Scrollable content
+          CustomScrollView(
+            controller: _scrollController,
+            slivers: [
           SliverAppBar(
-            expandedHeight: _isSearching ? 0 : 480,
+            expandedHeight: _isSearching ? 0 : 560,
             floating: false,
             pinned: true,
-            backgroundColor: Colors.black,
+            backgroundColor: Colors.transparent,
             flexibleSpace: _isSearching
                 ? null
                 : FlexibleSpaceBar(
@@ -331,28 +345,39 @@ class _SiteScreenState extends State<SiteScreen> {
                           return const Center(child: CircularProgressIndicator());
                         }
                         final manga = _mangas[index];
-                        return MangaGridCard(
-                          title: manga.title,
-                          coverUrl: manga.coverUrl,
-                          onTap: () {
-                            Navigator.push(
-                              context,
-                              MaterialPageRoute(
-                                builder: (_) => MangaScreen(
-                                  mangaTitle: manga.title,
-                                  mangaUrl: manga.url,
-                                  coverUrl: manga.coverUrl,
-                                  sourceId: manga.sourceId,
-                                ),
+                        return ClipRRect(
+                          borderRadius: BorderRadius.circular(12),
+                          child: BackdropFilter(
+                            filter: ImageFilter.blur(sigmaX: 12, sigmaY: 12),
+                            child: Container(
+                              color: Colors.transparent,
+                              child: MangaGridCard(
+                                title: manga.title,
+                                coverUrl: manga.coverUrl,
+                                onTap: () {
+                                  Navigator.push(
+                                    context,
+                                    MaterialPageRoute(
+                                      builder: (_) => MangaScreen(
+                                        mangaTitle: manga.title,
+                                        mangaUrl: manga.url,
+                                        coverUrl: manga.coverUrl,
+                                        sourceId: manga.sourceId,
+                                      ),
+                                    ),
+                                  );
+                                },
                               ),
-                            );
-                          },
+                            ),
+                          ),
                         );
                       },
                       childCount: _mangas.length + (_isLoading ? 3 : 0),
                     ),
                   ),
           ),
+        ],
+      ),
         ],
       ),
     );

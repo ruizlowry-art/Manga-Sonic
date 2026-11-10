@@ -4,6 +4,7 @@ import 'package:supabase_flutter/supabase_flutter.dart';
 import 'package:connectivity_plus/connectivity_plus.dart';
 import '../data/db/library_db.dart';
 import '../data/db/history_db.dart';
+import '../data/db/sync_queue_db.dart';
 import '../data/models/library_models.dart';
 import '../data/models/models.dart';
 import 'auth_service.dart';
@@ -23,7 +24,11 @@ class SyncService extends ChangeNotifier {
   // Pending changes queues
   final List<PendingLibraryChange> _pendingLibraryChanges = [];
   final List<PendingProgressChange> _pendingProgressChanges = [];
-  
+
+  // Track change IDs so we can remove them from the persistent queue once pushed.
+  final Set<String> _pendingLibraryChangeIds = {};
+  final Set<String> _pendingProgressChangeIds = {};
+
   // Sync state
   bool _isSyncing = false;
   bool _isOnline = true;
@@ -107,8 +112,51 @@ class SyncService extends ChangeNotifier {
 
   /// Load pending changes from local storage
   Future<void> _loadPendingChanges() async {
-    // TODO: Implement persistent storage for pending changes
-    // For now, we'll rely on re-syncing from local DB on startup
+    // Load persisted library changes
+    for (final data in SyncQueueDB.getLibraryChanges()) {
+      final type = SyncChangeType.values[data['type'] as int];
+      final timestamp = data['timestamp'] as int? ?? 0;
+      final changeId = data['changeId'] as String?;
+
+      switch (type) {
+        case SyncChangeType.add:
+        case SyncChangeType.update:
+          if (data['item'] != null && changeId != null) {
+            final item = LibraryItem.fromMap(data['item']);
+            _pendingLibraryChanges.add(PendingLibraryChange(
+              type: type,
+              item: item,
+              timestamp: timestamp,
+            ));
+            _pendingLibraryChangeIds.add(changeId);
+          }
+          break;
+        case SyncChangeType.remove:
+          if (data['mangaUrl'] != null && changeId != null) {
+            _pendingLibraryChanges.add(PendingLibraryChange(
+              type: type,
+              mangaUrl: data['mangaUrl'],
+              timestamp: timestamp,
+            ));
+            _pendingLibraryChangeIds.add(changeId);
+          }
+          break;
+      }
+    }
+
+    // Load persisted progress changes
+    for (final data in SyncQueueDB.getProgressChanges()) {
+      final timestamp = data['timestamp'] as int? ?? 0;
+      final changeId = data['changeId'] as String?;
+      if (data['status'] != null && changeId != null) {
+        final status = ChapterStatus.fromMap(data['status']);
+        _pendingProgressChanges.add(PendingProgressChange(
+          status: status,
+          timestamp: timestamp,
+        ));
+        _pendingProgressChangeIds.add(changeId);
+      }
+    }
   }
 
   /// Schedule a sync with debouncing
@@ -164,31 +212,58 @@ class SyncService extends ChangeNotifier {
 
   /// Queue a library item addition for sync
   void queueLibraryAdd(LibraryItem item) {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final changeId = 'lib_add_${item.mangaUrl}_$timestamp';
     _pendingLibraryChanges.add(PendingLibraryChange(
       type: SyncChangeType.add,
       item: item,
-      timestamp: DateTime.now().millisecondsSinceEpoch,
+      timestamp: timestamp,
     ));
+    _pendingLibraryChangeIds.add(changeId);
+    SyncQueueDB.saveLibraryChange(changeId, {
+      'type': SyncChangeType.add.index,
+      'item': item.toMap(),
+      'timestamp': timestamp,
+      'changeId': changeId,
+    });
     _scheduleSync();
   }
 
   /// Queue a library item removal for sync
   void queueLibraryRemove(String mangaUrl) {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final changeId = 'lib_remove_${mangaUrl}_$timestamp';
     _pendingLibraryChanges.add(PendingLibraryChange(
       type: SyncChangeType.remove,
       mangaUrl: mangaUrl,
-      timestamp: DateTime.now().millisecondsSinceEpoch,
+      timestamp: timestamp,
     ));
+    _pendingLibraryChangeIds.add(changeId);
+    SyncQueueDB.saveLibraryChange(changeId, {
+      'type': SyncChangeType.remove.index,
+      'mangaUrl': mangaUrl,
+      'timestamp': timestamp,
+      'changeId': changeId,
+    });
     _scheduleSync();
   }
 
   /// Queue a library item update for sync
   void queueLibraryUpdate(LibraryItem item) {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final changeId = 'lib_update_${item.mangaUrl}_$timestamp';
     _pendingLibraryChanges.add(PendingLibraryChange(
       type: SyncChangeType.update,
       item: item,
-      timestamp: DateTime.now().millisecondsSinceEpoch,
+      timestamp: timestamp,
     ));
+    _pendingLibraryChangeIds.add(changeId);
+    SyncQueueDB.saveLibraryChange(changeId, {
+      'type': SyncChangeType.update.index,
+      'item': item.toMap(),
+      'timestamp': timestamp,
+      'changeId': changeId,
+    });
     _scheduleSync();
   }
 
@@ -245,6 +320,11 @@ class SyncService extends ChangeNotifier {
         
         // Remove from pending only on success
         _pendingLibraryChanges.remove(change);
+        final libChangeId = _libraryChangeId(change);
+        if (libChangeId != null) {
+          _pendingLibraryChangeIds.remove(libChangeId);
+          SyncQueueDB.removeLibraryChange(libChangeId);
+        }
       } on PostgrestException catch (e) {
         debugPrint('Failed to push library change (Postgrest): ${e.message} (code: ${e.code})');
         if (e.code == '42501') {
@@ -327,10 +407,18 @@ class SyncService extends ChangeNotifier {
 
   /// Queue a reading progress change for sync
   void queueProgressChange(ChapterStatus status) {
+    final timestamp = DateTime.now().millisecondsSinceEpoch;
+    final changeId = 'prog_${status.chapterUrl}_$timestamp';
     _pendingProgressChanges.add(PendingProgressChange(
       status: status,
-      timestamp: DateTime.now().millisecondsSinceEpoch,
+      timestamp: timestamp,
     ));
+    _pendingProgressChangeIds.add(changeId);
+    SyncQueueDB.saveProgressChange(changeId, {
+      'status': status.toMap(),
+      'timestamp': timestamp,
+      'changeId': changeId,
+    });
     _scheduleSync();
   }
 
@@ -355,6 +443,11 @@ class SyncService extends ChangeNotifier {
         }, onConflict: 'user_id,chapter_url');
         
         _pendingProgressChanges.remove(change);
+        final progChangeId = _progressChangeId(change);
+        if (progChangeId != null) {
+          _pendingProgressChangeIds.remove(progChangeId);
+          SyncQueueDB.removeProgressChange(progChangeId);
+        }
       } on PostgrestException catch (e) {
         debugPrint('Failed to push progress change (Postgrest): ${e.message} (code: ${e.code})');
         if (e.code == '42501') {
@@ -443,10 +536,31 @@ class SyncService extends ChangeNotifier {
     );
   }
 
+  /// Derive the persistent queue key for a library change.
+  String? _libraryChangeId(PendingLibraryChange change) {
+    switch (change.type) {
+      case SyncChangeType.add:
+      case SyncChangeType.update:
+        if (change.item == null) return null;
+        return 'lib_${change.type == SyncChangeType.add ? 'add' : 'update'}_${change.item!.mangaUrl}_${change.timestamp}';
+      case SyncChangeType.remove:
+        if (change.mangaUrl == null) return null;
+        return 'lib_remove_${change.mangaUrl}_${change.timestamp}';
+    }
+  }
+
+  /// Derive the persistent queue key for a progress change.
+  String? _progressChangeId(PendingProgressChange change) {
+    return 'prog_${change.status.chapterUrl}_${change.timestamp}';
+  }
+
   /// Clear all pending changes (used on sign out)
   void _clearPendingChanges() {
     _pendingLibraryChanges.clear();
     _pendingProgressChanges.clear();
+    _pendingLibraryChangeIds.clear();
+    _pendingProgressChangeIds.clear();
+    SyncQueueDB.clearAll();
   }
 
   /// Force a sync now (for manual trigger)

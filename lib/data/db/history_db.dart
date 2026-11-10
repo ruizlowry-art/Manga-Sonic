@@ -1,6 +1,6 @@
 import 'package:hive/hive.dart';
-import '../../services/sync_service.dart';
 import '../models/models.dart';
+import 'sync_queue_db.dart';
 
 class HistoryDB {
   static const String statusBoxName = 'chapter_statuses';
@@ -85,12 +85,15 @@ class HistoryDB {
 
   static void _queueSyncProgress(ChapterStatus status) {
     try {
-      final syncService = SyncService.instance;
-      if (syncService.pendingProgressChangesCount >= 0) {
-        syncService.queueProgressChange(status);
-      }
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final changeId = 'prog_${status.chapterUrl}_$timestamp';
+      SyncQueueDB.saveProgressChange(changeId, {
+        'status': status.toMap(),
+        'timestamp': timestamp,
+        'changeId': changeId,
+      });
     } catch (_) {
-      // SyncService not initialized yet, ignore
+      // Sync queue not ready yet; change will be picked up on next app start
     }
   }
 }

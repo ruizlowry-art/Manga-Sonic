@@ -127,7 +127,9 @@ class _StableImageWidgetState extends State<StableImageWidget>
       provider = FileImage(widget.page.file!);
     } else {
       final imageUrl = widget.page.url!;
-      final referer = 'https://asurascans.com/';
+      // Use the image URL's own origin as referer so CDNs like
+      // gg.asuracomic.net don't reject the request on Android.
+      final referer = Uri.parse(imageUrl).origin;
       provider = CachedNetworkImageProvider(
         imageUrl,
         headers: {
@@ -148,7 +150,10 @@ class _StableImageWidgetState extends State<StableImageWidget>
       frameBuilder: (context, child, frame, wasSynchronouslyLoaded) {
         return frame != null ? child : _loadingWidget();
       },
-      errorBuilder: (context, error, stackTrace) => _errorWidget(),
+      errorBuilder: (context, error, stackTrace) {
+        debugPrint('Chapter image failed to load: ${widget.page.url} -> $error');
+        return _errorWidget();
+      },
     );
   }
 
@@ -158,7 +163,9 @@ class _StableImageWidgetState extends State<StableImageWidget>
       provider = FileImage(widget.page.file!);
     } else {
       final imageUrl = widget.page.url!;
-      final referer = 'https://asurascans.com/';
+      // Use the image URL's own origin as referer so CDNs like
+      // gg.asuracomic.net don't reject the request on Android.
+      final referer = Uri.parse(imageUrl).origin;
       provider = CachedNetworkImageProvider(
         imageUrl,
         headers: {
@@ -181,7 +188,10 @@ class _StableImageWidgetState extends State<StableImageWidget>
         }
         return frame != null ? child : _loadingWidget();
       },
-      errorBuilder: (context, error, stackTrace) => _errorWidget(),
+      errorBuilder: (context, error, stackTrace) {
+        debugPrint('Chapter image failed to load: ${widget.page.url} -> $error');
+        return _errorWidget();
+      },
     );
   }
 

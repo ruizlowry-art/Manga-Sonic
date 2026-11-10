@@ -3,6 +3,8 @@ import 'package:manga_sonic/app/bootstrap.dart';
 import 'package:manga_sonic/app/app.dart';
 
 void main() async {
+  WidgetsFlutterBinding.ensureInitialized();
+
   final services = await AppBootstrap.initialize();
 
   runApp(

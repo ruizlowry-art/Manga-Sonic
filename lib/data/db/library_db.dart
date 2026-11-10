@@ -1,6 +1,6 @@
 import 'package:hive/hive.dart';
-import '../../services/sync_service.dart';
 import '../models/library_models.dart';
+import 'sync_queue_db.dart';
 
 class LibraryDB {
   static const String categoryBoxName = 'categories';
@@ -70,23 +70,31 @@ class LibraryDB {
 
   static void _queueSyncAdd(LibraryItem item) {
     try {
-      final syncService = SyncService.instance;
-      if (syncService.pendingLibraryChangesCount >= 0) { // Check if initialized
-        syncService.queueLibraryAdd(item);
-      }
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final changeId = 'lib_add_${item.mangaUrl}_$timestamp';
+      SyncQueueDB.saveLibraryChange(changeId, {
+        'type': 0, // SyncChangeType.add.index
+        'item': item.toMap(),
+        'timestamp': timestamp,
+        'changeId': changeId,
+      });
     } catch (_) {
-      // SyncService not initialized yet, ignore
+      // Sync queue not ready yet; change will be picked up on next app start
     }
   }
 
   static void _queueSyncRemove(String mangaUrl) {
     try {
-      final syncService = SyncService.instance;
-      if (syncService.pendingLibraryChangesCount >= 0) {
-        syncService.queueLibraryRemove(mangaUrl);
-      }
+      final timestamp = DateTime.now().millisecondsSinceEpoch;
+      final changeId = 'lib_remove_${mangaUrl}_$timestamp';
+      SyncQueueDB.saveLibraryChange(changeId, {
+        'type': 1, // SyncChangeType.remove.index
+        'mangaUrl': mangaUrl,
+        'timestamp': timestamp,
+        'changeId': changeId,
+      });
     } catch (_) {
-      // SyncService not initialized yet, ignore
+      // Sync queue not ready yet; change will be picked up on next app start
     }
   }
 }

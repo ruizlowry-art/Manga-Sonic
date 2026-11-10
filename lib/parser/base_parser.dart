@@ -39,6 +39,9 @@ abstract class BaseParser {
       return true;
     }
     // Cloudflare often returns 200 with challenge page - check body content
+    // Only flag as block if we see strong challenge indicators. Avoid the
+    // broad "cloudflare + challenge" keyword combo which causes false positives
+    // on normal pages that merely mention Cloudflare.
     if (response.statusCode == 200 &&
         (response.body.contains('Just a moment') ||
             response.body.contains('challenges.cloudflare.com') ||
@@ -46,7 +49,7 @@ abstract class BaseParser {
             response.body.contains('cf-challenge-running') ||
             response.body.contains('id="cf-challenge"') ||
             response.body.contains('data-ray="') ||
-            (response.body.contains('cloudflare') && response.body.contains('challenge')))) {
+            response.body.contains('cf-challenge-widget'))) {
       return true;
     }
     return false;
@@ -61,11 +64,24 @@ abstract class BaseParser {
     if (_isCloudflareBlock(response)) {
       if (!isRetry) {
         await CloudflareInterceptor.bypass(url);
+        // If bypass didn't store cookies (e.g. HeadlessInAppWebView failed on
+        // Android), retry without Cloudflare headers as a fallback.
+        if (!CloudflareInterceptor.hasCookiesForUrl(url)) {
+          print(
+              'BaseParser: No Cloudflare cookies after bypass, retrying with default headers');
+          final retryResponse = await client.get(Uri.parse(url));
+          return retryResponse;
+        }
         return await getRequest(url, isRetry: true);
       }
-      throw Exception(
-        'Cloudflare block detected (Status ${response.statusCode})',
+      // On retry, cookies may be stale — force a fresh bypass, then return
+      // whatever we get rather than throwing (caller can handle the result).
+      await CloudflareInterceptor.bypass(url, force: true);
+      final retryResponse = await client.get(
+        Uri.parse(url),
+        headers: CloudflareInterceptor.headersForUrl(url),
       );
+      return retryResponse;
     }
 
     return response;
@@ -89,11 +105,24 @@ abstract class BaseParser {
     if (_isCloudflareBlock(response)) {
       if (!isRetry) {
         await CloudflareInterceptor.bypass(url);
+        if (!CloudflareInterceptor.hasCookiesForUrl(url)) {
+          print(
+              'BaseParser: No Cloudflare cookies after bypass, retrying with default headers');
+          final retryResponse = await client.post(Uri.parse(url), body: body);
+          return retryResponse;
+        }
         return await postRequest(url, body: body, headers: headers, isRetry: true);
       }
-      throw Exception(
-        'Cloudflare block detected (Status ${response.statusCode})',
+      await CloudflareInterceptor.bypass(url, force: true);
+      final retryResponse = await client.post(
+        Uri.parse(url),
+        headers: {
+          ...CloudflareInterceptor.headersForUrl(url),
+          if (headers != null) ...headers,
+        },
+        body: body,
       );
+      return retryResponse;
     }
 
     return response;

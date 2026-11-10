@@ -6,6 +6,7 @@ import 'package:manga_sonic/data/db/history_db.dart';
 import 'package:manga_sonic/data/db/queue_db.dart';
 import 'package:manga_sonic/data/db/manga_cache_db.dart';
 import 'package:manga_sonic/data/db/settings_db.dart';
+import 'package:manga_sonic/data/db/sync_queue_db.dart';
 import 'package:manga_sonic/utils/library_update_service.dart';
 import 'package:manga_sonic/utils/memory_safety_manager.dart';
 import 'package:manga_sonic/utils/download_manager.dart';
@@ -42,13 +43,24 @@ class AppBootstrap {
     // Initialize databases in parallel where possible
     await _initDatabases();
 
+    // Initialize the persistent sync queue (must be before SyncService so
+    // pending changes survive across app restarts / device logins).
+    await SyncQueueDB.init();
+
     // Initialize Supabase and auth
     await AuthService.initialize();
     final authService = AuthService.instance;
 
-    // Initialize sync service
+    // Initialize sync service (loads pending changes from the queue).
     await SyncService.initialize();
     final syncService = SyncService.instance;
+
+    // When resuming an existing session on a (new) device, pull remote
+    // library items and reading progress before the UI renders so the
+    // library and "continue reading" state are populated.
+    if (authService.isSignedIn) {
+      await syncService.forceSync();
+    }
 
     // Initialize services
     await _initServices();

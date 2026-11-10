@@ -192,16 +192,18 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
     if (page.aspectRatio != null || page.isSeparator) return;
 
     final imageUrl = page.url!;
-      final referer = 'https://asurascans.com/';
-      final provider = page.file != null
-          ? FileImage(page.file!)
-          : CachedNetworkImageProvider(
-              imageUrl,
-              headers: {
-                ...CloudflareInterceptor.headersForUrl(imageUrl),
-                'Referer': referer,
-              },
-            ) as ImageProvider;
+    // Use the image URL's own origin as referer so CDNs like
+    // gg.asuracomic.net don't reject the request on Android.
+    final referer = Uri.parse(imageUrl).origin;
+    final provider = page.file != null
+        ? FileImage(page.file!)
+        : CachedNetworkImageProvider(
+            imageUrl,
+            headers: {
+              ...CloudflareInterceptor.headersForUrl(imageUrl),
+              'Referer': referer,
+            },
+          ) as ImageProvider;
 
     final stream = provider.resolve(const ImageConfiguration());
     late ImageStreamListener listener;
@@ -455,14 +457,19 @@ class _ChapterReaderScreenState extends State<ChapterReaderScreen> {
       final url = pages[i].url;
       if (url != null) {
         try {
+          // Use the image URL's own origin as referer so CDNs like
+          // gg.asuracomic.net don't reject the request on Android.
+          final referer = Uri.parse(url).origin;
           CachedNetworkImageProvider(
             url,
             headers: {
               ...CloudflareInterceptor.headersForUrl(url),
-              'Referer': 'https://asurascans.com/',
+              'Referer': referer,
             },
           ).resolve(ImageConfiguration.empty);
-        } catch (_) {}
+        } catch (e) {
+          debugPrint('Prefetch failed for $url: $e');
+        }
       }
     }
 

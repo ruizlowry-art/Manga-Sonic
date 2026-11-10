@@ -12,6 +12,22 @@ import 'package:manga_sonic/utils/parser_factory.dart';
 
 import 'package:http/io_client.dart';
 
+/// Platform-appropriate User-Agent strings so image CDNs don't reject
+/// requests from Android/iOS that claim to be Windows.
+String get _platformUserAgent {
+  if (Platform.isAndroid) {
+    return 'Mozilla/5.0 (Linux; Android 13; Mobile) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Mobile Safari/537.36';
+  }
+  if (Platform.isIOS) {
+    return 'Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 (KHTML, like Gecko) Version/17.0 Mobile/15E148 Safari/604.1';
+  }
+  if (Platform.isWindows) {
+    return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+  }
+  // Web / other
+  return 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36';
+}
+
 typedef DownloadTask = QueuedTask;
 
 class DownloadStatus {
@@ -60,31 +76,35 @@ class DownloadManager extends ChangeNotifier {
     _isOffline = result.contains(ConnectivityResult.none);
 
     // Listen for changes with debouncing
-    _connectivitySubscription = _connectivity.onConnectivityChanged.listen((
-      results,
-    ) {
-      _lastConnectivityChange = DateTime.now();
-      final changeTime = _lastConnectivityChange;
+    try {
+      _connectivitySubscription = _connectivity.onConnectivityChanged.listen((
+        results,
+      ) {
+        _lastConnectivityChange = DateTime.now();
+        final changeTime = _lastConnectivityChange;
 
-      // Debounce: wait 3 seconds before acting on connectivity change
-      Future.delayed(_connectivityDebounce, () {
-        // Only process if this is still the most recent change
-        if (_lastConnectivityChange != changeTime) return;
+        // Debounce: wait 3 seconds before acting on connectivity change
+        Future.delayed(_connectivityDebounce, () {
+          // Only process if this is still the most recent change
+          if (_lastConnectivityChange != changeTime) return;
 
-        final wasOffline = _isOffline;
-        _isOffline = results.contains(ConnectivityResult.none);
+          final wasOffline = _isOffline;
+          _isOffline = results.contains(ConnectivityResult.none);
 
-        if (wasOffline && !_isOffline && _queue.isNotEmpty && !_isProcessing) {
-          debugPrint('Internet restored, resuming downloads...');
-          _processQueue();
-        } else if (_isOffline) {
-          debugPrint(
-            'Internet lost, downloads will pause after current chunk...',
-          );
-        }
-        notifyListeners();
+          if (wasOffline && !_isOffline && _queue.isNotEmpty && !_isProcessing) {
+            debugPrint('Internet restored, resuming downloads...');
+            _processQueue();
+          } else if (_isOffline) {
+            debugPrint(
+              'Internet lost, downloads will pause after current chunk...',
+            );
+          }
+          notifyListeners();
+        });
       });
-    });
+    } catch (e) {
+      debugPrint('DownloadManager: Connectivity listener failed on this platform: $e');
+    }
 
     if (!_isOffline && _queue.isNotEmpty) {
       _processQueue();
@@ -412,8 +432,7 @@ class DownloadManager extends ChangeNotifier {
             .get(
               Uri.parse(url),
               headers: {
-                'User-Agent':
-                    'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36',
+                'User-Agent': _platformUserAgent,
                 'Referer': referer,
               },
             )

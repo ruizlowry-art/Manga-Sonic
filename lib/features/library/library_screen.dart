@@ -167,6 +167,7 @@ class _LibraryScreenState extends State<LibraryScreen> with SelectionModeMixin {
     final accentColor = themeService.primaryColor;
 
     return Scaffold(
+      backgroundColor: Colors.black,
       extendBodyBehindAppBar: true,
       appBar: _isSearching || isSelecting
           ? AppBar(
