@@ -40,7 +40,7 @@ dependencies:
   hive_flutter: ^1.1.0
   path_provider: ^2.1.5
   provider: ^6.1.5+1
-  flutter_inappwebview: ^6.1.5
+  zikzak_inappwebview: ^6.3.4
   url_launcher: ^6.3.2
   palette_generator: ^0.3.3+7
   flutter_colorpicker: ^1.1.0
